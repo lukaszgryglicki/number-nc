@@ -729,17 +729,18 @@ fn o_cmul(a: CVal, b: CVal) -> CVal {
 }
 
 /// `nf::cmp` restricted to the non-negative outputs of `abs` (README
-/// comparison matrix): Any is ordered only against zero.
+/// comparison matrix): Any is ordered only against zero, and same-kind
+/// Inf/Inf and Eps/Eps pairs are unordered (two different unknowns).
 fn o_cmp_abs(a: Val, b: Val) -> Option<Ordering> {
     match (a, b) {
         (Nan, _) | (_, Nan) => None,
         (Any(_), Num(0)) => Some(Ordering::Greater),
         (Num(0), Any(_)) => Some(Ordering::Less),
         (Any(_), _) | (_, Any(_)) => None,
-        (Inf(_), Inf(_)) => Some(Ordering::Equal),
+        (Inf(_), Inf(_)) => None,
         (Inf(_), _) => Some(Ordering::Greater),
         (_, Inf(_)) => Some(Ordering::Less),
-        (Eps(_), Eps(_)) => Some(Ordering::Equal),
+        (Eps(_), Eps(_)) => None,
         (Eps(_), Num(0)) => Some(Ordering::Greater),
         (Num(0), Eps(_)) => Some(Ordering::Less),
         (Eps(_), Num(_)) => Some(Ordering::Less),

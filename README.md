@@ -16,8 +16,10 @@ Build targets (`Makefile` wraps cargo): `make` — optimized release build,
 `make debug` — debug build, `make test` — full test suite
 (`make test N=15` additionally runs it at precision 15,
 `make test ALL0F=1` / `ALL1F=1` add the exhaustive bit-exact 0F/1F suites,
-348 160 cases total), `make confirm32`
-— in-memory random-add proof at N=32, `make clean` — remove artifacts.
+348 160 cases total, and `ALL2F=1` / `ALL0C=1` add the exhaustive 12-bit
+2F real and 0C complex grids — 67 108 864 bit-exact cases each),
+`make confirm32` — in-memory random-add proof at N=32, `make clean` —
+remove artifacts.
 
 ## The NF format
 
@@ -42,16 +44,83 @@ somewhere in `(0, +Inf]`"*. See [the `Any` state](#the-any-state) below.
 
 Total logical size: `2·2^N + 4` bits.
 
-| N  | layout                     | total bits |
-|----|----------------------------|------------|
-| 0  | `FFFF b.b`                 | 6          |
-| 1  | `FFFF bb.bb`               | 8          |
-| 2  | `FFFF bbbb.bbbb`           | 12         |
-| 3  | `FFFF b^8.b^8`             | 20         |
-| 4  | `FFFF b^16.b^16`           | 36         |
-| 7  | `FFFF b^128.b^128`         | 260        |
-| 10 | `FFFF b^1024.b^1024`       | 2052       |
-| 20 | `FFFF b^1048576.b^1048576` | 2097156    |
+Layout examples: `0F` = `FFFF b.b` (6 bits), `1F` = `FFFF bb.bb` (8),
+`2F` = `FFFF bbbb.bbbb` (12), `3F` = `FFFF b^8.b^8` (20),
+`10F` = `FFFF b^1024.b^1024` (2052).
+
+### Capacity, memory and tetration reach, N = 0…50
+
+| N | logical bits | RAM/value¹ | smallest positive² | largest value³ | max h: tet(2,h)⁴ | max h: tet(e,h)⁴ |
+|---|---|---|---|---|---|---|
+| 0 | 6 | 16 B | 2^−1 = 0.5 | 1.5 | 0 | 0 |
+| 1 | 8 | 16 B | 2^−2 = 0.25 | 3.75 | 1 | 1 |
+| 2 | 12 | 16 B | 2^−4 = 0.0625 | 15.9375 | 2 | 2 |
+| 3 | 20 | 16 B | 2^−8 ≈ 0.0039 | 255.99609375 | 3 | 2 |
+| 4 | 36 | 16 B | 2^−16 ≈ 1.5·10^−5 | ≈ 2^16 ≈ 6.6·10^4 | 3 | 2 |
+| 5 | 68 | 16 B | 2^−32 ≈ 2.3·10^−10 | ≈ 2^32 ≈ 4.3·10^9 | 4 | 3 |
+| 6 | 132 | 24 B | 2^−64 ≈ 5.4·10^−20 | ≈ 2^64 ≈ 1.8·10^19 | 4 | 3 |
+| 7 | 260 | 40 B | 2^−128 ≈ 2.9·10^−39 | ≈ 2^128 ≈ 3.4·10^38 | 4 | 3 |
+| 8 | 516 | 72 B | 2^−256 ≈ 8.6·10^−78 | ≈ 2^256 ≈ 1.2·10^77 | 4 | 3 |
+| 9 | 1 028 | 136 B | 2^−512 ≈ 7.5·10^−155 | ≈ 2^512 ≈ 1.3·10^154 | 4 | 3 |
+| 10 | 2 052 | 264 B | 2^−1024 ≈ 5.6·10^−309 | ≈ 2^1024 ≈ 1.8·10^308 | 4 | 3 |
+| 11 | 4 100 | 520 B | 2^−2048 ≈ 3.1·10^−617 | ≈ 2^2048 ≈ 3.2·10^616 | 4 | 3 |
+| 12 | 8 196 | 1 032 B | 2^−4096 ≈ 9.6·10^−1234 | ≈ 2^4096 ≈ 1.0·10^1233 | 4 | 3 |
+| 13 | 16 388 | 2 056 B | 2^−8192 ≈ 9.2·10^−2467 | ≈ 2^8192 ≈ 1.1·10^2466 | 4 | 3 |
+| 14 | 32 772 | 4 104 B | 2^−16384 ≈ 8.4·10^−4933 | ≈ 2^16384 ≈ 1.2·10^4932 | 4 | 3 |
+| 15 | 65 540 | 8 200 B | 2^−32768 ≈ 7.1·10^−9865 | ≈ 2^32768 ≈ 1.4·10^9864 | 4 | 3 |
+| 16 | 131 076 | 16 KiB | 2^−65536 ≈ 5.0·10^−19729 | ≈ 2^65536 ≈ 2.0·10^19728 | 4 | 3 |
+| 17 | 262 148 | 32 KiB | 2^−131072 ≈ 2.5·10^−39457 | ≈ 2^131072 ≈ 4.0·10^39456 | 5 | 3 |
+| 18 | 524 292 | 64 KiB | 2^−262144 ≈ 6.2·10^−78914 | ≈ 2^262144 ≈ 1.6·10^78913 | 5 | 3 |
+| 19 | 1 048 580 | 128 KiB | 2^−524288 ≈ 3.9·10^−157827 | ≈ 2^524288 ≈ 2.6·10^157826 | 5 | 3 |
+| 20 | 2 097 156 | 256 KiB | 2^−1048576 ≈ 1.5·10^−315653 | ≈ 2^1048576 ≈ 6.7·10^315652 | 5 | 3 |
+| 21 | 4 194 308 | 512 KiB | 2^−2097152 ≈ 2.2·10^−631306 | ≈ 2^2097152 ≈ 4.5·10^631305 | 5 | 3 |
+| 22 | 8 388 612 | 1 MiB | 2^−4 194 304 ≈ 10^(−1.26·10^6) | ≈ 2^4 194 304 ≈ 10^(1.26·10^6) | 5 | 3 |
+| 23 | 16 777 220 | 2 MiB | 2^−8 388 608 ≈ 10^(−2.53·10^6) | ≈ 2^8 388 608 ≈ 10^(2.53·10^6) | 5 | 4 |
+| 24 | 33 554 436 | 4 MiB | 2^−16 777 216 ≈ 10^(−5.05·10^6) | ≈ 2^16 777 216 ≈ 10^(5.05·10^6) | 5 | 4 |
+| 25 | 67 108 868 | 8 MiB | 2^−33 554 432 ≈ 10^(−1.01·10^7) | ≈ 2^33 554 432 ≈ 10^(1.01·10^7) | 5 | 4 |
+| 26 | 134 217 732 | 16 MiB | 2^−67 108 864 ≈ 10^(−2.02·10^7) | ≈ 2^67 108 864 ≈ 10^(2.02·10^7) | 5 | 4 |
+| 27 | 268 435 460 | 32 MiB | 2^−134 217 728 ≈ 10^(−4.04·10^7) | ≈ 2^134 217 728 ≈ 10^(4.04·10^7) | 5 | 4 |
+| 28 | 536 870 916 | 64 MiB | 2^−268 435 456 ≈ 10^(−8.08·10^7) | ≈ 2^268 435 456 ≈ 10^(8.08·10^7) | 5 | 4 |
+| 29 | 1 073 741 828 | 128 MiB | 2^−536 870 912 ≈ 10^(−1.62·10^8) | ≈ 2^536 870 912 ≈ 10^(1.62·10^8) | 5 | 4 |
+| 30 | 2 147 483 652 | 256 MiB | 2^−1 073 741 824 ≈ 10^(−3.23·10^8) | ≈ 2^1 073 741 824 ≈ 10^(3.23·10^8) | 5 | 4 |
+| 31 | 4 294 967 300 | 512 MiB | 2^−2 147 483 648 ≈ 10^(−6.46·10^8) | ≈ 2^2 147 483 648 ≈ 10^(6.46·10^8) | 5 | 4 |
+| 32 | 8 589 934 596 | 1 GiB | 2^−4 294 967 296 ≈ 10^(−1.29·10^9) | ≈ 2^4 294 967 296 ≈ 10^(1.29·10^9) | 5 | 4 |
+| 33 | 17 179 869 188 | 2 GiB | 2^−8 589 934 592 ≈ 10^(−2.59·10^9) | ≈ 2^8 589 934 592 ≈ 10^(2.59·10^9) | 5 | 4 |
+| 34 | 34 359 738 372 | 4 GiB | 2^−17 179 869 184 ≈ 10^(−5.17·10^9) | ≈ 2^17 179 869 184 ≈ 10^(5.17·10^9) | 5 | 4 |
+| 35 | 68 719 476 740 | 8 GiB | 2^−34 359 738 368 ≈ 10^(−1.03·10^10) | ≈ 2^34 359 738 368 ≈ 10^(1.03·10^10) | 5 | 4 |
+| 36 | 137 438 953 476 | 16 GiB | 2^−68 719 476 736 ≈ 10^(−2.07·10^10) | ≈ 2^68 719 476 736 ≈ 10^(2.07·10^10) | 5 | 4 |
+| 37 | 274 877 906 948 | 32 GiB | 2^−137 438 953 472 ≈ 10^(−4.14·10^10) | ≈ 2^137 438 953 472 ≈ 10^(4.14·10^10) | 5 | 4 |
+| 38 | 549 755 813 892 | 64 GiB | 2^−274 877 906 944 ≈ 10^(−8.27·10^10) | ≈ 2^274 877 906 944 ≈ 10^(8.27·10^10) | 5 | 4 |
+| 39 | 1 099 511 627 780 | 128 GiB | 2^−549 755 813 888 ≈ 10^(−1.65·10^11) | ≈ 2^549 755 813 888 ≈ 10^(1.65·10^11) | 5 | 4 |
+| 40 | 2 199 023 255 556 | 256 GiB | 2^−1 099 511 627 776 ≈ 10^(−3.31·10^11) | ≈ 2^1 099 511 627 776 ≈ 10^(3.31·10^11) | 5 | 4 |
+| 41 | 4 398 046 511 108 | 512 GiB | 2^−2 199 023 255 552 ≈ 10^(−6.62·10^11) | ≈ 2^2 199 023 255 552 ≈ 10^(6.62·10^11) | 5 | 4 |
+| 42 | 8 796 093 022 212 | 1 TiB | 2^−4 398 046 511 104 ≈ 10^(−1.32·10^12) | ≈ 2^4 398 046 511 104 ≈ 10^(1.32·10^12) | 5 | 4 |
+| 43 | 17 592 186 044 420 | 2 TiB | 2^−8 796 093 022 208 ≈ 10^(−2.65·10^12) | ≈ 2^8 796 093 022 208 ≈ 10^(2.65·10^12) | 5 | 4 |
+| 44 | 35 184 372 088 836 | 4 TiB | 2^−17 592 186 044 416 ≈ 10^(−5.30·10^12) | ≈ 2^17 592 186 044 416 ≈ 10^(5.30·10^12) | 5 | 4 |
+| 45 | 70 368 744 177 668 | 8 TiB | 2^−35 184 372 088 832 ≈ 10^(−1.06·10^13) | ≈ 2^35 184 372 088 832 ≈ 10^(1.06·10^13) | 5 | 4 |
+| 46 | 140 737 488 355 332 | 16 TiB | 2^−70 368 744 177 664 ≈ 10^(−2.12·10^13) | ≈ 2^70 368 744 177 664 ≈ 10^(2.12·10^13) | 5 | 4 |
+| 47 | 281 474 976 710 660 | 32 TiB | 2^−140 737 488 355 328 ≈ 10^(−4.24·10^13) | ≈ 2^140 737 488 355 328 ≈ 10^(4.24·10^13) | 5 | 4 |
+| 48 | 562 949 953 421 316 | 64 TiB | 2^−281 474 976 710 656 ≈ 10^(−8.47·10^13) | ≈ 2^281 474 976 710 656 ≈ 10^(8.47·10^13) | 5 | 4 |
+| 49 | 1 125 899 906 842 628 | 128 TiB | 2^−562 949 953 421 312 ≈ 10^(−1.69·10^14) | ≈ 2^562 949 953 421 312 ≈ 10^(1.69·10^14) | 5 | 4 |
+| 50 | 2 251 799 813 685 252 | 256 TiB | 2^−1 125 899 906 842 624 ≈ 10^(−3.39·10^14) | ≈ 2^1 125 899 906 842 624 ≈ 10^(3.39·10^14) | 5 | 4 |
+
+¹ Actual allocation: mantissa limbs + one flags word =
+  `8·(⌈2^(N+1)/64⌉ + 1)` bytes (64-bit aligned; `Vec` bookkeeping ~24 B not
+  counted). An **NC** complex value is exactly **2×** this.
+² Smallest positive *normal* = `2^−2^N`; any non-zero result below it
+  becomes `±InfSmall`.
+³ Largest normal = `2^2^N − 2^−2^N`; anything above becomes `±Inf`.
+⁴ Tetration: `tet(b,1) = b`, `tet(b,h) = b^tet(b,h−1)` — so
+  `tet(2,4) = 2^(2^(2^2)) = 65536`, `tet(e,3) = e^(e^e) ≈ 3 814 279.1.`
+  The column is the largest `h` such that `tet(b,h)` ≤ largest value.
+  Height `0` at N=0 means even the base itself does not fit (max 1.5).
+  Notable near-misses: at N=4, `tet(2,4) = 2^16` overshoots the max by just
+  `2^−16` (height stays 3); at N=16, `tet(2,5) = 2^65536` misses by `2^−65536`
+  (height stays 4 — N=17 stores it); at N=2, `e^e ≈ 15.154` *just fits*
+  under 15.9375. Next milestones are astronomically far: `tet(2,6)` first
+  fits at **N = 65 537**, and `tet(e,5)` needs **N ≈ 5.5·10^6**
+  (a ~10^1 656 520-bit number). Base-2 height plateaus at 5 for all
+  17 ≤ N ≤ 65 536; base-e at 4 for all 23 ≤ N ≲ 5.5·10^6.
 
 **There is no upper limit on `N`** other than available memory. Nothing is
 checked or capped — if you ask for more than the machine has, the OS's OOM
@@ -99,8 +168,17 @@ The doctrine used throughout the library:
   **does** compare against values on the other side of zero:
   `-1 < +Any`, `+Any > 0` are decisive; `+Any vs +1` is undecidable.
 
+Comparison is **strict** about all limit values: `±Inf`, `±InfSmall` and
+`±Any` never equal anything — *including themselves*: `cmp(+Inf, +Inf)`,
+`cmp(+Eps, +Eps)` and `cmp(+Any, +Any)` are all `?` (unordered). Two
+overflows need not hide the same true value (see the Comparison matrix
+below).
+
 `Any` round-trips through strings (`any`, `-any` parse; prints `+Any`) and
-through bit strings (`0110-...-...`).
+through bit strings (`0110-...-...`). All special values parse
+case-insensitively: `nan`, `inf`/`-inf`, `eps`/`infsmall` (± forms), `any`/
+`-any`, and `zero`/`-zero` (aliases for `0`/`-0`; zero is unsigned, so all
+four parse to the same `0`).
 
 ## Operation matrices (all special cases, validated by tests)
 
@@ -249,20 +327,30 @@ and `sqrt(a²)` = `|a|`-state: `sqrt((±A)²) = +A`, `sqrt((±∞)²) = +∞`,
 | a\b | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | +x | −x |
 |-----|---|----|----|----|----|----|----|---|----|----|
 | **X**  | ? | ? | ? | ? | ? | ? | ? | ? | ? | ? |
-| **+∞** | ? | = | > | ? | > | > | > | > | > | > |
-| **−∞** | ? | < | = | < | ? | < | < | < | < | < |
+| **+∞** | ? | ? | > | ? | > | > | > | > | > | > |
+| **−∞** | ? | < | ? | < | ? | < | < | < | < | < |
 | **+A** | ? | ? | > | ? | > | ? | > | > | ? | > |
 | **−A** | ? | < | ? | < | ? | < | ? | < | < | ? |
-| **+ε** | ? | < | > | ? | > | = | > | > | < | > |
-| **−ε** | ? | < | > | < | ? | < | = | < | < | > |
+| **+ε** | ? | < | > | ? | > | ? | > | > | < | > |
+| **−ε** | ? | < | > | < | ? | < | ? | < | < | > |
 | **0**  | ? | < | > | < | > | < | > | = | < | > |
 | **+x** | ? | < | > | ? | > | > | > | > | cmp | > |
 | **−x** | ? | < | > | < | ? | < | < | < | < | cmp |
 
+Only **zero and normal values can ever be `=`** — they are the only states
+that denote one exact number. Everything else is a *set* of possible true
+values, and two sets never compare equal: `+Inf` means "some value >
+max", so `cmp(+Inf, +Inf)` is `?` (the two hidden values could differ —
+think ℵ₀ vs ℵ₁; the same holds for two underflows in `(0, 2^−2^N)`). This
+is the exact comparison analogue of `Inf − Inf = NaN` and `Inf / Inf =
+Any`. Order against *disjoint* ranges is still decisive: `+Inf > x`,
+`+ε < x`, `+ε > 0`, `−∞ < −x` — every `<`/`>` cell above is a strict
+statement about disjoint intervals.
+
 `±Any` is ordered only against values strictly on the other side of zero
 (and against zero itself); against anything on its own side the answer is
-`?`. `eq` is `cmp == Equal`, so `NaN` and `±Any` are never equal to
-anything, including themselves.
+`?`. `eq` is `cmp == Equal`, so `NaN`, `±Inf`, `±InfSmall` and `±Any` are
+never equal to anything, including themselves.
 
 ### Unary functions over every special state
 
@@ -307,6 +395,102 @@ any `Any` in either argument yields `±Any` with the sign of `y`
 (the angle's magnitude is unknown but its half-plane is known).
 Other special cases: `atan2(0,0) = X`, `atan2(±∞, ∞) = X`,
 `atan2(±ε, ±ε) = X`, `atan2(±1, +∞) = ±ε`, `atan2(±ε, −x) = ±π`.
+
+### The complete 0F universe: four 14×14 grids
+
+At `N = 0` the format is only 6 bits, so it holds **exactly 14 distinct
+canonical values**: the seven specials `NaN`, `±Inf`, `±Any`, `±InfSmall`,
+zero, and *all six* non-zero normals `±0.5`, `±1`, `±1.5`. The grids below
+therefore show **every possible value against every possible value** for
+`add`, `mul`, `div` and `pow` — 4 × 196 cells, the entire 0F arithmetic.
+
+Every cell is **computed output of the library itself**, regenerated
+verbatim by `cargo run --release --example readme_0f_matrices`, and the
+same results are independently bit-exactly verified by `make test ALL0F=1`
+(all 64×64 raw bit patterns per operation against an oracle). Same legend
+as above (`X` = NaN, `±∞`, `±A` = ±Any, `±ε` = ±InfSmall).
+
+Things to notice: at this tiny precision overflow is everywhere
+(`1.5 + 0.5 = 2 → +∞`, `1.5 · 1.5 = 2.25 → +∞`); rounding is to nearest,
+ties away from zero (`0.5 · 0.5 = 0.25 → 0.5`); `1^±∞ = X` but
+`1^±ε = 1`; `0^0 = 1`; `+∞^−1 = +ε`; negative bases with non-integer
+exponents are `X`; and every `±Any` row/column follows the sign algebra.
+
+### Addition (`a + b`) — complete 0F grid
+
+| a\b | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | 0.5 | −0.5 | 1 | −1 | 1.5 | −1.5 |
+|-----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| **X** | X | X | X | X | X | X | X | X | X | X | X | X | X | X |
+| **+∞** | X | +∞ | X | +∞ | X | +∞ | +∞ | +∞ | +∞ | +∞ | +∞ | +∞ | +∞ | +∞ |
+| **−∞** | X | X | −∞ | X | −∞ | −∞ | −∞ | −∞ | −∞ | −∞ | −∞ | −∞ | −∞ | −∞ |
+| **+A** | X | +∞ | X | +A | X | +A | X | +A | +A | X | +A | X | +A | X |
+| **−A** | X | X | −∞ | X | −A | X | −A | −A | X | −A | X | −A | X | −A |
+| **+ε** | X | +∞ | −∞ | +A | X | +ε | X | +ε | 0.5 | −0.5 | 1 | −1 | 1.5 | −1.5 |
+| **−ε** | X | +∞ | −∞ | X | −A | X | −ε | −ε | 0.5 | −0.5 | 1 | −1 | 1.5 | −1.5 |
+| **0** | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | 0.5 | −0.5 | 1 | −1 | 1.5 | −1.5 |
+| **0.5** | X | +∞ | −∞ | +A | X | 0.5 | 0.5 | 0.5 | 1 | 0 | 1.5 | −0.5 | +∞ | −1 |
+| **−0.5** | X | +∞ | −∞ | X | −A | −0.5 | −0.5 | −0.5 | 0 | −1 | 0.5 | −1.5 | 1 | −∞ |
+| **1** | X | +∞ | −∞ | +A | X | 1 | 1 | 1 | 1.5 | 0.5 | +∞ | 0 | +∞ | −0.5 |
+| **−1** | X | +∞ | −∞ | X | −A | −1 | −1 | −1 | −0.5 | −1.5 | 0 | −∞ | 0.5 | −∞ |
+| **1.5** | X | +∞ | −∞ | +A | X | 1.5 | 1.5 | 1.5 | +∞ | 1 | +∞ | 0.5 | +∞ | 0 |
+| **−1.5** | X | +∞ | −∞ | X | −A | −1.5 | −1.5 | −1.5 | −1 | −∞ | −0.5 | −∞ | 0 | −∞ |
+
+### Multiplication (`a * b`) — complete 0F grid
+
+| a\b | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | 0.5 | −0.5 | 1 | −1 | 1.5 | −1.5 |
+|-----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| **X** | X | X | X | X | X | X | X | X | X | X | X | X | X | X |
+| **+∞** | X | +∞ | −∞ | +A | −A | +A | −A | X | +∞ | −∞ | +∞ | −∞ | +∞ | −∞ |
+| **−∞** | X | −∞ | +∞ | −A | +A | −A | +A | X | −∞ | +∞ | −∞ | +∞ | −∞ | +∞ |
+| **+A** | X | +A | −A | +A | −A | +A | −A | X | +A | −A | +A | −A | +A | −A |
+| **−A** | X | −A | +A | −A | +A | −A | +A | X | −A | +A | −A | +A | −A | +A |
+| **+ε** | X | +A | −A | +A | −A | +ε | −ε | 0 | +ε | −ε | +ε | −ε | +ε | −ε |
+| **−ε** | X | −A | +A | −A | +A | −ε | +ε | 0 | −ε | +ε | −ε | +ε | −ε | +ε |
+| **0** | X | X | X | X | X | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **0.5** | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | 0.5 | −0.5 | 0.5 | −0.5 | 1 | −1 |
+| **−0.5** | X | −∞ | +∞ | −A | +A | −ε | +ε | 0 | −0.5 | 0.5 | −0.5 | 0.5 | −1 | 1 |
+| **1** | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | 0.5 | −0.5 | 1 | −1 | 1.5 | −1.5 |
+| **−1** | X | −∞ | +∞ | −A | +A | −ε | +ε | 0 | −0.5 | 0.5 | −1 | 1 | −1.5 | 1.5 |
+| **1.5** | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | 1 | −1 | 1.5 | −1.5 | +∞ | −∞ |
+| **−1.5** | X | −∞ | +∞ | −A | +A | −ε | +ε | 0 | −1 | 1 | −1.5 | 1.5 | −∞ | +∞ |
+
+### Division (`a / b`) — complete 0F grid
+
+| a\b | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | 0.5 | −0.5 | 1 | −1 | 1.5 | −1.5 |
+|-----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| **X** | X | X | X | X | X | X | X | X | X | X | X | X | X | X |
+| **+∞** | X | +A | −A | +A | −A | +∞ | −∞ | X | +∞ | −∞ | +∞ | −∞ | +∞ | −∞ |
+| **−∞** | X | −A | +A | −A | +A | −∞ | +∞ | X | −∞ | +∞ | −∞ | +∞ | −∞ | +∞ |
+| **+A** | X | +A | −A | +A | −A | +A | −A | X | +A | −A | +A | −A | +A | −A |
+| **−A** | X | −A | +A | −A | +A | −A | +A | X | −A | +A | −A | +A | −A | +A |
+| **+ε** | X | +ε | −ε | +A | −A | +A | −A | X | +ε | −ε | +ε | −ε | +ε | −ε |
+| **−ε** | X | −ε | +ε | −A | +A | −A | +A | X | −ε | +ε | −ε | +ε | −ε | +ε |
+| **0** | X | 0 | 0 | 0 | 0 | 0 | 0 | X | 0 | 0 | 0 | 0 | 0 | 0 |
+| **0.5** | X | +ε | −ε | +A | −A | +∞ | −∞ | X | 1 | −1 | 0.5 | −0.5 | 0.5 | −0.5 |
+| **−0.5** | X | −ε | +ε | −A | +A | −∞ | +∞ | X | −1 | 1 | −0.5 | 0.5 | −0.5 | 0.5 |
+| **1** | X | +ε | −ε | +A | −A | +∞ | −∞ | X | +∞ | −∞ | 1 | −1 | 0.5 | −0.5 |
+| **−1** | X | −ε | +ε | −A | +A | −∞ | +∞ | X | −∞ | +∞ | −1 | 1 | −0.5 | 0.5 |
+| **1.5** | X | +ε | −ε | +A | −A | +∞ | −∞ | X | +∞ | −∞ | 1.5 | −1.5 | 1 | −1 |
+| **−1.5** | X | −ε | +ε | −A | +A | −∞ | +∞ | X | −∞ | +∞ | −1.5 | 1.5 | −1 | 1 |
+
+### Power (`a ^ b`) — complete 0F grid
+
+| a\b | X | +∞ | −∞ | +A | −A | +ε | −ε | 0 | 0.5 | −0.5 | 1 | −1 | 1.5 | −1.5 |
+|-----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| **X** | X | X | X | X | X | X | X | X | X | X | X | X | X | X |
+| **+∞** | X | +∞ | +ε | +∞ | +A | +A | +A | 1 | +∞ | +ε | +∞ | +ε | +∞ | +ε |
+| **−∞** | X | X | X | X | X | X | X | 1 | X | X | −∞ | −ε | X | X |
+| **+A** | X | +A | +A | +A | +A | +A | +A | 1 | +A | +A | +A | +A | +A | +A |
+| **−A** | X | X | X | X | X | X | X | 1 | X | X | −A | −A | X | X |
+| **+ε** | X | +ε | +∞ | +A | +A | +A | +A | 1 | +ε | +∞ | +ε | +∞ | +ε | +∞ |
+| **−ε** | X | X | X | X | X | X | X | 1 | X | X | −ε | −∞ | X | X |
+| **0** | X | 0 | X | 0 | X | 0 | X | 1 | 0 | X | 0 | X | 0 | X |
+| **0.5** | X | +ε | +∞ | +A | +A | 1 | 1 | 1 | 0.5 | 1.5 | 0.5 | +∞ | 0.5 | +∞ |
+| **−0.5** | X | X | X | X | X | X | X | 1 | X | X | −0.5 | −∞ | X | X |
+| **1** | X | X | X | X | X | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| **−1** | X | X | X | X | X | X | X | 1 | X | X | −1 | −1 | X | X |
+| **1.5** | X | +∞ | +ε | +A | +A | 1 | 1 | 1 | 1 | 1 | 1.5 | 0.5 | +∞ | 0.5 |
+| **−1.5** | X | X | X | X | X | X | X | 1 | X | X | −1.5 | −0.5 | X | X |
 
 ## Representation
 
@@ -370,7 +554,8 @@ nc [OPTIONS] N "EXPRESSION"
 * Operators: `+ − * / ^` (also `**`), parentheses, implicit multiplication
   (`2pi`, `(1+2i)(3-i)`, `3i`).
 * Constants: `pi`, `tau`, `e`, `i`, `inf`, `eps` (aka `infsmall`), `any`,
-  `nan`.
+  `nan`, `zero` (case-insensitive; `-zero` = `-0` = `0` — zero is
+  unsigned).
 * Functions: `re im abs arg conj sqrt cbrt root(z,k) exp ln log log2 log10
   logb(b,x) pow(a,b) atan2(y,x) sin cos tan asin acos atan sinh cosh tanh
   asinh acosh atanh floor ceil round trunc` — all over complex numbers
@@ -709,8 +894,105 @@ real output:
 | `Inf·Eps = +Any` (both bits set) | `nc 7 --bits "inf*eps"` | `(+Any)` + `re bits: 0110-0…0-0…0` |
 | sign-known indeterminates | `nc 3 "inf/inf"`, `nc 3 "eps/eps"` | `(+Any)` |
 | sign-unknown stay NaN | `nc 3 "inf-inf"`, `nc 3 "0*inf"` | `(NaN)` |
+| strict comparison — `Inf` never equals `Inf` | `make test` (`matrices.rs` cmp grid) | `cmp(+∞,+∞) = ?`, `cmp(+ε,+ε) = ?` |
+| `zero`/`-zero`/`Zero` parse | `nc 4 "zero"`, `nc 4 -- "-zero"` | `0` |
+| the four 14×14 0F grids above are computed output | `cargo run --release --example readme_0f_matrices` | the tables, verbatim |
 | huge N end-to-end | `nc 18 "2^100"` | `1267650600228229401496703205376` |
 | every 12-bit 2F op result, bit-exact | `make test ALL2F=1` | 67 108 864 cases ok (~5 s) |
 | every 12-bit 0C complex op result, bit-exact | `make test ALL0C=1` | 67 108 864 cases ok (~2 s) |
 | quiet compute (no printing) | `nc 32 -q "…"` | *(nothing; exit 0)* |
 | 32C in memory (8.6G-bit numbers) | `make confirm32` | `OK: 32C addition confirmed in memory` (8 GiB peak, 8.81 s) |
+
+## Alternative storage layouts — an investigation (nothing here is implemented)
+
+The current format spends **4 flag bits** on top of the `2F` payload bits
+(`F = 2^N`). Is that wasteful? Information theory first: the format must
+distinguish `2·(2^2F − 1) + 1` normal values (every non-zero magnitude in
+two signs, plus one unsigned zero) **plus 7 specials** (`NaN`, `±Inf`,
+`±InfSmall`, `±Any`) ≈ `2^(2F+1) + 6` states — so the hard floor is
+**`2F + 2` bits**. The current `2F + 4` sits 2 bits above the floor. Three
+candidate layouts:
+
+### Scheme A′ — one "special" flag bit: `[special][sign][2F payload]` = `2F + 2` bits
+
+If `special = 0`: sign + plain `2F`-bit magnitude (sign-magnitude, `-0`
+canonicalized). If `special = 1`: the payload encodes which special value
+it is — only 3 payload bits are needed for the 7 specials (the sign bit can
+serve as the special's sign). This achieves the **information-theoretic
+optimum**.
+
+The original sketch (`[special][2F]`, `1F = 5 bits`) has a flaw: with
+`special = 0` there is no sign bit left, so normals couldn't be negative.
+The corrected A′ costs one more bit and works for every N — including
+`0F`, which becomes **4 bits**: `[special][sign][i][f]`, and with
+`special = 1` the remaining 3 bits are exactly enough for the 7 specials.
+Sizes: 0F = 4, 1F = 6, 2F = 10, 3F = 18, 10F = 2050 bits.
+
+Cost: every classification (`is_nan`, `is_inf`, …) becomes a *two-step*
+test (flag, then decode payload), and `pack` must ensure a special's
+payload is never interpreted as mantissa. Cheap, but no longer a 1-bit
+probe.
+
+### Scheme B — `[Inf][Eps][Sign]` + NaN as "−0": `2F + 3` bits
+
+Drop the NaN bit; keep the other three. The freed pattern
+"`sign = 1`, everything else zero" (i.e. **−0**, which the current format
+canonicalizes away anyway) becomes NaN. `±Any` still works
+(`Inf`+`Eps` both set). One bit saved.
+
+Cost: `is_nan` changes from a 1-bit test to an **O(words) scan** of the
+whole mantissa (it must verify all `2F` payload bits are zero with the
+sign set) — on a 10F number that is a 32-limb scan on *every* NaN check,
+and NaN is checked first in every single operation. A real throughput
+regression for large N, to save one bit that alignment then swallows
+anyway (see below).
+
+### Scheme C — fully in-band ("saturated") encoding: exactly `2F` bits
+
+No flag bits at all: steal the **top 7 codes** of the raw `2F`-bit space.
+With an unsigned mantissa scale `m/2^F`, let `M = 2^2F − 1` (all ones):
+
+```text
+M   = NaN     M−1 = +Inf    M−2 = −Inf    M−3 = +InfSmall
+M−4 = −InfSmall    M−5 = +Any    M−6 = −Any
+```
+
+This is maximal saturation — *every* bit stores value. The price is
+asymmetry, and the original sketch's arithmetic needs correcting: for `3F`
+(`F = 8`, 16 payload bits) the largest normal becomes
+`(2^16 − 8)/2^8 = 255.96875` (not 248/247), i.e. the format loses its top
+**7 ulps**, and the smallest positive stays `2^−8 = 1/256` (not `1/555`).
+Signs still have to live somewhere, giving two sub-variants:
+
+* **C1, sign-magnitude**: one payload bit becomes the sign → the magnitude
+  range halves to `F−1.F` fixed-point (asymmetric with the spec).
+* **C2, two's-complement**: range becomes `[−2^(F−1), 2^(F−1))` — again
+  half the spec'd magnitude, and `−0` disappears but so does the clean
+  `FFFF ii…i.ff…f` bit picture.
+
+Runtime costs: every classification is a **multi-limb compare** against
+`2^2F − 8`; `pack` must round *around* the stolen codes (overflow now
+triggers 7 ulps early); `is_nan` is a full-width compare. Everything the
+current format does in O(1) on one flags word becomes O(words).
+
+### The alignment punchline
+
+The implementation stores numbers 64-bit aligned:
+`words = ⌈2F/64⌉ + 1`. For every `N ≥ 6` the payload `2F` is already a
+multiple of 64, so **any** nonzero number of flag bits — 1, 2, 3 or 4 —
+costs exactly the same **one extra limb**. Schemes A′ and B save *zero
+actual RAM* for all N ≥ 6; they only shave bits that padding restores.
+Scheme C alone saves the flags limb (8 bytes/value, making storage a
+perfect power of two), at the price of turning every O(1) flag probe into
+an O(words) compare and complicating rounding at the top of the range.
+
+### Verdict
+
+The current `2F + 4` layout is deliberately chosen: it is **≤ 2 bits above
+the information floor and ≤ 1 limb above the alignment floor**, all seven
+specials are **orthogonal 1-bit probes** on a single flags word
+(`NaN`/`Inf`/`Eps`/`Sign`, with `Inf∧Eps = Any` as the only compound), the
+full spec'd range `F.F` survives symmetrically, and the printed bit layout
+(`FFFF iiii.ffff`) matches the format definition 1:1. The alternatives
+trade correctness-critical simplicity (and, for B/C, per-operation speed)
+for at most 8 bytes per value.

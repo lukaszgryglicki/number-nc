@@ -341,6 +341,7 @@ fn eval_const(name: &str, pos: usize) -> Result<Vec<Limb>, Error> {
         "eps" | "infsmall" | "epsilon" => nc::from_re(&nf::eps(false)),
         "any" => nc::from_re(&nf::any(false)),
         "nan" => nc::from_re(&nf::nan()),
+        "zero" => nc::zero(),
         _ => return err(pos, format!("unknown constant '{}'", name)),
     })
 }
@@ -591,6 +592,10 @@ mod tests {
             assert_eq!(evs("eps"), "(+InfSmall)");
             assert_eq!(evs("1/inf"), "(+InfSmall)");
             assert_eq!(evs("1/eps"), "(+Inf)");
+            assert_eq!(evs("zero"), "0");
+            assert_eq!(evs("-zero"), "0");
+            assert_eq!(evs("Zero"), "0");
+            assert_eq!(evs("NaN"), "(NaN)");
         });
     }
 

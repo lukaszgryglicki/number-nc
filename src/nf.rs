@@ -37,13 +37,16 @@
 //! ```text
 //! Inf + Inf(same sign)=Inf   Inf + -Inf = NaN      Inf + finite = Inf
 //! Eps + Eps(same sign)=Eps   Eps + -Eps = NaN      Eps + x = x   Eps + 0 = Eps
-//! Inf * Inf = Inf            Inf * x = Inf         Inf * 0 = NaN  Inf * Eps = NaN
+//! Inf * Inf = Inf            Inf * x = Inf         Inf * 0 = NaN  Inf * Eps = Any
 //! Eps * Eps = Eps            Eps * x = Eps         Eps * 0 = 0
 //! anything / 0   = NaN  (zero carries no sign, so the sign of the
 //!                        resulting infinity would be unknowable)
-//! 0 / nonzero    = 0         x / Inf = Eps         Inf / Inf = NaN
-//! x / Eps = Inf              Eps / Eps = NaN       Eps / Inf = Eps,  Inf / Eps = Inf
+//! 0 / nonzero    = 0         x / Inf = Eps         Inf / Inf = Any
+//! x / Eps = Inf              Eps / Eps = Any       Eps / Inf = Eps,  Inf / Eps = Inf
 //! ```
+//!
+//! `Any` (Inf and Eps bits both set) means "sign known, magnitude anywhere
+//! in `(0, Inf]`" — used when a form is indeterminate but its sign is not.
 //!
 //! A normal result that overflows becomes `Inf`; a non-zero result that
 //! rounds to zero becomes `Eps`.  Rounding is round-to-nearest, ties away
@@ -491,10 +494,14 @@ fn rank(a: &[Limb]) -> i32 {
     }
 }
 
-/// Partial comparison: `None` if either operand is NaN, and `None` when an
+/// Partial comparison: `None` if either operand is NaN, `None` when an
 /// `Any` operand makes the order unknowable (an `Any` compares decisively
-/// only against zero and against the opposite sign).  Two `Eps` (or two
-/// `Inf`) of the same sign compare equal.
+/// only against zero and against the opposite sign), and `None` for two
+/// `Inf` (or two `Eps`) of the same sign: each stands for a *different*
+/// unknown magnitude past the same edge of the range, so no order and no
+/// equality between them can be claimed -- consistent with
+/// `Inf - Inf = NaN` and `Inf / Inf = Any`.  Only zero and normal values
+/// can ever be `Equal`.
 pub fn cmp(a: &[Limb], b: &[Limb]) -> Option<Ordering> {
     if is_nan(a) || is_nan(b) {
         return None;
@@ -517,14 +524,16 @@ pub fn cmp(a: &[Limb], b: &[Limb]) -> Option<Ordering> {
     if ra != rb {
         return Some(ra.cmp(&rb));
     }
-    Some(match ra {
-        1 => limb::cmp(mant(b), mant(a)),
-        5 => limb::cmp(mant(a), mant(b)),
-        _ => Ordering::Equal,
-    })
+    match ra {
+        1 => Some(limb::cmp(mant(b), mant(a))),
+        5 => Some(limb::cmp(mant(a), mant(b))),
+        3 => Some(Ordering::Equal), // exact zero == exact zero
+        _ => None, // same-sign Inf/Inf or Eps/Eps: two different unknowns
+    }
 }
 
-/// Equality (NaN is not equal to anything, including itself).
+/// Equality; only zero and normal values can be equal (`NaN`, `±Inf`,
+/// `±Eps` and `±Any` are never equal to anything, including themselves).
 pub fn eq(a: &[Limb], b: &[Limb]) -> bool {
     cmp(a, b) == Some(Ordering::Equal)
 }
@@ -763,9 +772,10 @@ pub fn default_digits() -> usize {
 }
 
 /// Parse a decimal string: `[+-] digits [. digits] [(e|E)[+-]digits]`, or the
-/// special values `nan`, `[+-]inf`/`infinity`, `[+-]eps`/`infsmall`
-/// (case-insensitive).  Values beyond the representable range become
-/// `Inf`/`Eps` exactly as the semantics dictate.
+/// special values `nan`, `[+-]inf`/`infinity`, `[+-]eps`/`infsmall`,
+/// `[+-]any`, `[+-]zero` (case-insensitive).  `-0` and `-zero` canonicalize
+/// to `+0` like every other zero.  Values beyond the representable range
+/// become `Inf`/`Eps` exactly as the semantics dictate.
 pub fn from_str(s: &str) -> Result<Vec<Limb>, String> {
     let t = s.trim();
     if t.is_empty() {
@@ -782,6 +792,7 @@ pub fn from_str(s: &str) -> Result<Vec<Limb>, String> {
         "inf" | "infinity" => return Ok(inf(negative)),
         "eps" | "infsmall" => return Ok(eps(negative)),
         "any" => return Ok(any(negative)),
+        "zero" => return Ok(zero()),
         _ => {}
     }
     // split off exponent
@@ -1030,13 +1041,21 @@ mod tests {
                 ];
                 for i in 0..chain.len() {
                     for j in 0..chain.len() {
-                        assert_eq!(cmp(&chain[i], &chain[j]), Some(i.cmp(&j)), "n={} {}v{}", n, i, j);
+                        // Inf/Eps self-pairs are unordered (each is a
+                        // different unknown magnitude past the same edge)
+                        let want = if i == j && [0, 2, 4, 7].contains(&i) {
+                            None
+                        } else {
+                            Some(i.cmp(&j))
+                        };
+                        assert_eq!(cmp(&chain[i], &chain[j]), want, "n={} {}v{}", n, i, j);
                     }
                 }
                 // logical bit layout + bit string roundtrips
                 for v in [&a, &neg(&b), &min_pos(), &max_value(), &inf(true), &eps(false)] {
-                    assert!(eq(&from_bits(&to_bits(v)), v), "n={}", n);
-                    assert!(eq(&from_bit_string(&to_bit_string(v)).unwrap(), v), "n={}", n);
+                    let sb = to_bit_string(v);
+                    assert_eq!(to_bit_string(&from_bits(&to_bits(v))), sb, "n={}", n);
+                    assert_eq!(to_bit_string(&from_bit_string(&sb).unwrap()), sb, "n={}", n);
                 }
                 assert_eq!(logical_bits(), 2 * (1usize << n) + 4);
             });
@@ -1174,9 +1193,9 @@ mod tests {
             let z = zero();
             // add
             assert!(is_nan(&add(&i, &ni)));
-            assert!(eq(&add(&i, &x), &i));
+            assert!(is_inf(&add(&i, &x)) && !is_neg(&add(&i, &x)));
             assert!(is_nan(&add(&e, &ne)));
-            assert!(eq(&add(&e, &z), &e));
+            assert!(is_eps(&add(&e, &z)) && !is_neg(&add(&e, &z)));
             assert!(eq(&add(&e, &x), &x));
             // mul
             assert!(is_nan(&mul(&i, &z)));
@@ -1220,8 +1239,13 @@ mod tests {
             ];
             for i in 0..vals.len() {
                 for j in 0..vals.len() {
-                    let want = i.cmp(&j);
-                    assert_eq!(cmp(&vals[i], &vals[j]), Some(want), "{} vs {}", i, j);
+                    // Inf/Eps self-pairs: unordered under strict semantics
+                    let want = if i == j && [0, 2, 4, 7].contains(&i) {
+                        None
+                    } else {
+                        Some(i.cmp(&j))
+                    };
+                    assert_eq!(cmp(&vals[i], &vals[j]), want, "{} vs {}", i, j);
                 }
             }
             assert_eq!(cmp(&nan(), &zero()), None);
@@ -1269,11 +1293,7 @@ mod tests {
                     let bits = to_bits(&c);
                     assert_eq!(bits.len(), (logical_bits()).div_ceil(8));
                     let back = from_bits(&bits);
-                    if is_nan(&c) {
-                        assert!(is_nan(&back));
-                    } else {
-                        assert!(eq(&c, &back), "n={} value={}", n, s(&c));
-                    }
+                    assert_eq!(to_bit_string(&back), to_bit_string(&c), "n={}", n);
                 }
             });
         }
