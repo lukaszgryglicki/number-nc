@@ -1,0 +1,27 @@
+[package]
+name = "nf"
+version = "0.1.0"
+edition = "2021"
+description = "NF arbitrary-precision fixed-point numbers (2^N integer bits + 2^N fraction bits + 4 special bits) and NC complex numbers, with a calculator CLI"
+license = "MIT"
+
+[lib]
+name = "nf"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nc"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1
+
+[profile.test]
+opt-level = 2
