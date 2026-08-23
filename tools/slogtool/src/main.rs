@@ -128,7 +128,7 @@ fn main() {
     v(bases[0].slog(Some(1.5f64.powf(1.5)), None), 2.00);
     eprintln!("validation OK");
 
-    for n in 0u32..=50 {
+    for n in 0u32..=64 {
         let mut cells = Vec::new();
         for (i, base) in bases.iter().enumerate() {
             let f = 1u128 << n;
