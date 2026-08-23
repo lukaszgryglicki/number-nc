@@ -30,6 +30,9 @@ OPTIONS:
     -B, --from-bits  treat EXPRESSION as a raw bit string
                      (e.g. 0001-00000010-00000000; separators optional)
                      and print its decimal value plus canonical bits
+    -q, --quiet      compute but print nothing (in-memory confirmation for
+                     enormous N where decimal printing is impractical);
+                     exit status still reports success/failure
     -h, --help       show this help
     -V, --version    show version
 
@@ -63,6 +66,7 @@ struct Opts {
     digits: Option<usize>,
     bits: bool,
     from_bits: bool,
+    quiet: bool,
 }
 
 fn parse_n(s: &str) -> Option<u32> {
@@ -79,6 +83,7 @@ fn parse_args() -> Result<Option<Opts>, String> {
     let mut digits: Option<usize> = None;
     let mut bits = false;
     let mut from_bits = false;
+    let mut quiet = false;
     let mut no_more_opts = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -103,6 +108,7 @@ fn parse_args() -> Result<Option<Opts>, String> {
             }
             "-b" | "--bits" => bits = true,
             "-B" | "--from-bits" => from_bits = true,
+            "-q" | "--quiet" => quiet = true,
             "-d" | "--digits" => {
                 let v = args.next().ok_or("--digits needs a value")?;
                 digits = Some(v.parse::<usize>().map_err(|_| "--digits: not a number")?);
@@ -134,7 +140,7 @@ fn parse_args() -> Result<Option<Opts>, String> {
     }
     let n = n.ok_or("missing N argument")?;
     let expr_s = expr_s.ok_or("missing expression argument")?;
-    Ok(Some(Opts { n, expr: expr_s, digits, bits, from_bits }))
+    Ok(Some(Opts { n, expr: expr_s, digits, bits, from_bits, quiet }))
 }
 
 fn main() -> ExitCode {
@@ -157,8 +163,10 @@ fn main() -> ExitCode {
         // raw bit-string mode: decode, print value and canonical bits
         return match nfmod::from_bit_string(&opts.expr) {
             Ok(v) => {
-                println!("{}", nfmod::to_string_digits(&v, opts.digits));
-                println!("bits: {}", nfmod::to_bit_string(&v));
+                if !opts.quiet {
+                    println!("{}", nfmod::to_string_digits(&v, opts.digits));
+                    println!("bits: {}", nfmod::to_bit_string(&v));
+                }
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -176,6 +184,10 @@ fn main() -> ExitCode {
         }
     };
 
+    if opts.quiet {
+        // computed successfully; deliberately print nothing
+        return ExitCode::SUCCESS;
+    }
     println!("{}", nc::to_string_digits(&val, opts.digits));
     if opts.bits {
         let (re, im) = (nc::re(&val), nc::im(&val));

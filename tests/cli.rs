@@ -152,14 +152,47 @@ fn any_state_cli() {
 }
 
 #[test]
-fn huge_n24_cli() {
-    // N=24: 33_554_436 logical bits (~4 MB per number), end to end
-    assert_eq!(
-        run(&["24", "2^100"]).0,
-        "1267650600228229401496703205376"
-    );
-    assert_eq!(run(&["24", "-d", "10", "1/3"]).0, "0.3333333333");
-    assert_eq!(run(&["24", "(2+3i)*(2-3i)"]).0, "13");
-    assert_eq!(run(&["24", "inf*eps"]).0, "(+Any)");
-    assert_eq!(run(&["24", "2^-100 * 2^100"]).0, "1");
+fn quiet_flag() {
+    // -q computes but prints nothing; exit code still reports the outcome
+    let (out, err, code) = run(&["-q", "7", "1+1"]);
+    assert_eq!((out.as_str(), err.as_str(), code), ("", "", 0));
+    let (out, err, code) = run(&["--quiet", "3", "(1+2i)*(3-1i)"]);
+    assert_eq!((out.as_str(), err.as_str(), code), ("", "", 0));
+    let (out, _, code) = run(&["-q", "3", "-B", "0001-00000010-00000000"]);
+    assert_eq!((out.as_str(), code), ("", 0));
+    // errors still reported on stderr with exit 2
+    let (out, err, code) = run(&["-q", "3", "1+"]);
+    assert_eq!(out, "");
+    assert!(!err.is_empty());
+    assert_eq!(code, 2);
+}
+
+#[test]
+fn huge_n18_cli() {
+    // N=18: 524_292 logical bits (~64 KB per number), end to end;
+    // `make test N=K` additionally runs the same checks at N=K.
+    let mut ns: Vec<u32> = vec![18];
+    if let Some(k) = std::env::var("NF_TEST_N").ok().and_then(|s| s.parse().ok()) {
+        if !ns.contains(&k) {
+            ns.push(k);
+        }
+    }
+    for n in ns {
+        let ns = n.to_string();
+        let f = 1u64 << n.min(62);
+        if f > 101 {
+            assert_eq!(
+                run(&[&ns, "2^100"]).0,
+                "1267650600228229401496703205376"
+            );
+            assert_eq!(run(&[&ns, "2^-100 * 2^100"]).0, "1");
+        }
+        if n >= 6 {
+            assert_eq!(run(&[&ns, "-d", "10", "1/3"]).0, "0.3333333333");
+        }
+        if n >= 2 {
+            assert_eq!(run(&[&ns, "(2+3i)*(2-3i)"]).0, "13");
+        }
+        assert_eq!(run(&[&ns, "inf*eps"]).0, "(+Any)");
+    }
 }

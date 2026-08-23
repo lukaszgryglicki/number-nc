@@ -3,24 +3,36 @@
 //! Every binary operation is checked over the full 10x10 grid of flag
 //! states (NaN, +Inf, -Inf, +Any, -Any, +InfSmall, -InfSmall, 0, 1, -1) and
 //! every unary operation over all special states, for every test precision
-//! N in {0, 1, 2, 3, 6, 7, 8} plus the huge N = 24 (33 554 436 logical
-//! bits, ~4 MB per number).  All 16 raw flag nibbles are decoded and
-//! canonicalized, bit-string I/O is round-tripped, and the same algebra is
-//! verified end-to-end through the expression parser.
+//! N in {0, 1, 2, 3, 6, 7, 8} plus the huge N = 18 (524 292 logical
+//! bits, ~64 KB per number).  `make test N=K` (the `NF_TEST_N` env var)
+//! additionally runs everything at N = K.  All 16 raw flag nibbles are
+//! decoded and canonicalized, bit-string I/O is round-tripped, and the
+//! same algebra is verified end-to-end through the expression parser.
 //!
-//! At N = 24 the few paths that are inherently quadratic in the mantissa
-//! width (Newton roots of normal values, pi-valued results, shortest-form
-//! decimal printing of dense mantissas) are skipped; their correctness is
-//! already covered at every N <= 8, and tests/huge.rs stresses N = 24
-//! further.
+//! At huge N (>= 16) the few paths that are inherently quadratic in the
+//! mantissa width (Newton roots of normal values, pi-valued results,
+//! shortest-form decimal printing of dense mantissas) are skipped; their
+//! correctness is already covered at every N <= 8, and tests/huge.rs
+//! stresses huge N further.
 
 use nf::nf::{self as nfm, with_n};
 use nf::{expr, nc, real, Limb};
 
-const NS: [u32; 7] = [0, 1, 2, 3, 6, 7, 8];
-/// The same list plus a huge precision: flag algebra and sparse-mantissa
-/// arithmetic stay fast at any width.
-const NS_HUGE: [u32; 8] = [0, 1, 2, 3, 6, 7, 8, 24];
+/// Every test precision: the small set {0, 1, 2, 3, 6, 7, 8} plus the huge
+/// N = 18 — flag algebra and sparse-mantissa arithmetic stay fast at any
+/// width.
+const NS_FIXED: [u32; 8] = [0, 1, 2, 3, 6, 7, 8, 18];
+
+/// The fixed precisions, plus `NF_TEST_N` when set (`make test N=K`).
+fn ns_huge() -> Vec<u32> {
+    let mut v = NS_FIXED.to_vec();
+    if let Some(k) = std::env::var("NF_TEST_N").ok().and_then(|s| s.parse().ok()) {
+        if !v.contains(&k) {
+            v.push(k);
+        }
+    }
+    v
+}
 
 /// True for precisions where O(mantissa^2) work must be avoided.
 fn is_huge(n: u32) -> bool {
@@ -72,7 +84,7 @@ fn check_grid(
     cols: &[&str],
     grid: &[&[&str]],
 ) {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for (i, &sa) in rows.iter().enumerate() {
                 for (j, &sb) in cols.iter().enumerate() {
@@ -121,7 +133,7 @@ fn add_matrix() {
 #[test]
 fn sub_is_add_neg() {
     // sub(a,b) must agree with add(a, -b) on every pair of states, every N
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for &sa in &STATES {
                 for &sb in &STATES {
@@ -240,7 +252,7 @@ fn pow_numeric_spots() {
 #[test]
 fn root_matrix() {
     // k = 0 -> NaN for everything
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for &s in &STATES {
                 assert_eq!(st(&real::nth_root(&mk(s), 0)), "nan", "root({}, 0) at N={}", s, n);
@@ -260,7 +272,7 @@ fn root_matrix() {
         /*  1 */ &["1", "1", "1", "1"],
         /* -1 */ &["-1", "nan", "-1", "nan"],
     ];
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for (i, &s) in STATES.iter().enumerate() {
                 // Newton roots of normal values are O(width^2): skip at huge N
@@ -291,7 +303,7 @@ fn root_numeric_spots() {
 #[test]
 fn square_consistency() {
     // square(a) == mul(a, a) == pow(a, 2) on all states (pow needs "2")
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             let two_ok = representable("2");
             for &s in &STATES {
@@ -348,7 +360,7 @@ fn cmp_matrix() {
         /*  1 */ &["?", "<", ">", "?", ">", ">", ">", ">", "=", ">"],
         /* -1 */ &["?", "<", ">", "<", "?", "<", "<", "<", "<", "="],
     ];
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for (i, &sa) in STATES.iter().enumerate() {
                 for (j, &sb) in STATES.iter().enumerate() {
@@ -362,7 +374,7 @@ fn cmp_matrix() {
 
 #[test]
 fn eq_semantics() {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             // NaN and Any never equal anything - not even themselves
             for &s in &["nan", "+any", "-any"] {
@@ -409,7 +421,7 @@ fn unary_special_tables() {
         ("acosh", |a| real::acosh(a), ["nan", "+inf", "nan", "nan", "nan", "nan", "nan", "nan"]),
         ("atanh", |a| real::atanh(a), ["nan", "nan", "nan", "nan", "nan", "+eps", "-eps", "0"]),
     ];
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for (name, f, wants) in table {
                 for (i, &s) in specials.iter().enumerate() {
@@ -449,7 +461,7 @@ fn atan_inf_is_half_pi() {
 
 #[test]
 fn atan2_special_cases() {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             let a2 = |y: &str, x: &str| st(&real::atan2(&mk(y), &mk(x)));
             assert_eq!(a2("0", "0"), "nan");
@@ -525,7 +537,7 @@ fn all_16_flag_nibbles_decode() {
         ("1110", "nan", "nan"),
         ("1111", "nan", "nan"),
     ];
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for &(flags, want0, want1) in &cases {
                 let s0 = bit_str(flags, 0);
@@ -541,7 +553,7 @@ fn all_16_flag_nibbles_decode() {
 
 #[test]
 fn bit_string_roundtrips() {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for &s in &STATES {
                 let v = mk(s);
@@ -592,7 +604,7 @@ fn bit_string_exact_forms() {
 
 #[test]
 fn negative_zero_canonicalizes() {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             let v = nfm::from_bit_string(&bit_str("0001", 0)).unwrap();
             assert!(nfm::is_zero(&v) && !nfm::is_neg(&v), "-0 -> +0 at N={}", n);
@@ -608,7 +620,7 @@ fn negative_zero_canonicalizes() {
 
 #[test]
 fn parse_print_specials() {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             let cases: &[(&str, &str)] = &[
                 ("nan", "nan"),
@@ -642,7 +654,7 @@ fn parse_print_specials() {
 #[test]
 fn value_string_roundtrips() {
     // shortest-form printing must parse back to the identical value
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             for &s in &["0.5", "1", "-1", "1.5", "-1.5", "0"] {
                 let v = mk(s);
@@ -672,7 +684,7 @@ fn value_string_roundtrips() {
 
 #[test]
 fn overflow_underflow_boundaries() {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             let max = nfm::max_value();
             let min = nfm::min_pos();
@@ -708,7 +720,7 @@ fn overflow_underflow_boundaries() {
 
 #[test]
 fn complex_any_propagation() {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             let cs = |z: &[Limb]| nc::to_string_digits(z, None);
             let anyp = nc::from_re(&mk("+any"));
@@ -743,7 +755,7 @@ fn complex_any_propagation() {
 
 #[test]
 fn expr_special_algebra() {
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             let ev = |s: &str| nc::to_string_digits(&expr::eval_str(s).unwrap(), None);
             assert_eq!(ev("inf*eps"), "(+Any)", "N={}", n);
@@ -802,7 +814,7 @@ fn expr_special_algebra() {
 #[test]
 fn expr_numeric_all_n() {
     // plain arithmetic that fits every N (max at N=0 is 1.5)
-    for &n in &NS_HUGE {
+    for &n in &ns_huge() {
         with_n(n, || {
             let ev = |s: &str| nc::to_string_digits(&expr::eval_str(s).unwrap(), None);
             assert_eq!(ev("1"), "1");

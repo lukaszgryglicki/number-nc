@@ -13,8 +13,9 @@ $ ./target/release/nc 7 "(3.14159+2.73i)^(-2.00000000000000000000000000000000000
 ```
 
 Build targets (`Makefile` wraps cargo): `make` — optimized release build,
-`make debug` — debug build, `make test` — full test suite, `make clean` —
-remove artifacts.
+`make debug` — debug build, `make test` — full test suite
+(`make test N=15` additionally runs it at precision 15), `make confirm32`
+— in-memory random-add proof at N=32, `make clean` — remove artifacts.
 
 ## The NF format
 
@@ -358,6 +359,9 @@ nc [OPTIONS] N "EXPRESSION"
   -b, --bits       also print raw flag/integer/fraction bits per component
   -B, --from-bits  EXPRESSION is a raw bit string (e.g. 0001-00000010-00000000,
                    separators optional): prints its value and canonical bits
+  -q, --quiet      compute but print nothing — for enormous N where decimal
+                   printing is impractical; the exit code still reports the
+                   outcome
   -h, --help       full help
 ```
 
@@ -432,6 +436,14 @@ Modules:
   typically correct to within a few final-bit ulps.
 * Multiplication uses Karatsuba above 32 limbs; division is Knuth
   Algorithm D; integer roots use seeded Newton iteration.
+* Sparse values stay fast at *any* precision: multiplication trims leading
+  zeros, division strips common trailing zero limbs (`u·B^t / v·B^t` has
+  the same quotient), `pow10` uses binary exponentiation, and
+  shortest-form printing caps its search at the value's exact decimal
+  length (`F − trailing zero bits` fraction digits). This is what makes
+  the huge-`N` tests below practical: at `N=18`, `1/3` or `2^100000` are
+  instant, while *dense*-mantissa transcendentals (Newton roots of normal
+  values, π/e series) remain inherently quadratic in the width.
 * Typical timings (one core): `N=10` (2052-bit) full example — ~10 ms;
   `N=16` (128K-bit) arithmetic — ~10 ms; `N=18` `sqrt(2)` — ~1.4 s;
   `N=20` (2M-bit) `sqrt` — ~15 s.
@@ -439,18 +451,20 @@ Modules:
 ## Tests
 
 ```console
-$ make test        # = cargo test
+$ make test        # = cargo test (the fixed-N suite below)
+$ make test N=15   # the same suite, additionally run at precision N=15
 ```
 
-The suite (**85 tests**) is deliberately exhaustive:
+The suite (**94 tests**) is deliberately exhaustive:
 
 * **`tests/matrices.rs`** — the tables above, verbatim: 10×10 state grids
   for `add`, `mul`, `div` (plus `sub` checked as `add(a,−b)` over all 100
   pairs), the 14×12 `pow` grid, the 10×5 `root` grid, the 10×10 `cmp` grid,
   23 unary functions × 8 special states, `atan2` special cases, square
   consistency (`a·a ≡ a^2`, `sqrt(a²) = |a|`-state) — **each at every
-  `N ∈ {0, 1, 2, 3, 6, 7, 8}`** (N=0 is the 6-bit extreme where the largest
-  value is 1.5; N=7's 260 bits exceed any native machine word); all 16 flag
+  `N ∈ {0, 1, 2, 3, 6, 7, 8, 18}`** (N=0 is the 6-bit extreme where the
+  largest value is 1.5; N=7's 260 bits exceed any native machine word;
+  N=18 is the huge 524 292-bit case, ~64 KB per number); all 16 flag
   nibbles × {zero, non-zero} payloads decode and canonicalize at every N;
   bit-string round-trips for every state at every N with exact expected
   strings at N=0/1/3 (`0000-0-0`, `0000-00-00`, `0001-00000010-00000000`);
@@ -459,13 +473,70 @@ The suite (**85 tests**) is deliberately exhaustive:
   tie-away artifacts at N=0 documented in-test); the whole special algebra
   again end-to-end through the parser (`inf*eps → (+Any)`, `0*any → (NaN)`,
   `root(2,eps) → (+Inf)`, ...), and plain numerics at every N.
+  At N=18 the few paths that are inherently quadratic in the mantissa
+  width (Newton roots of normal values, π-valued results, shortest-form
+  printing of dense mantissas) are skipped — their logic is identical at
+  every N and already proven at N ≤ 8.
+* **`tests/huge.rs`** (7 tests) — N=18 stress: layout sizes; `2^1000`
+  (302-digit) and `2^100000` (30 103-digit) exact decimal round-trips;
+  exact sparse arithmetic spanning the full width
+  (`a = 2^big + 2^-big` with `big = 3F/4 = 196608`: `(a+b)−b = a`,
+  `(a·2)/2 = a`, exact floor/frac split); deep-fraction boundaries
+  (`min = 2^-262144`: `min+min`, `min² → +Eps`, `1/min → +Inf`, `1−min`
+  borrows across 4096 limbs); max-value boundaries (`max+min → +Inf`,
+  `1/max = min`); 1101-char decimal literals round-tripping exactly
+  (`(10^999+7) + 2^-100`); complex giants through the parser
+  (`(2^100+3)(2^100−3) = 2^200−9` exactly).
 * **library unit tests** (49) — big-int properties, packing/rounding,
   special algebra, transcendentals vs 80-digit references at N=7/8, complex
   identities (Euler, i^i, branch cuts), parser precedence/errors, across
   `N ∈ {1, 2, 3, 6, 7, 8}` with spot checks at N=0/10/12.
-* **CLI integration tests** (11) — argument handling, exit codes, `--bits`,
-  `--from-bits` (including malformed input → exit 2), `±Any` output, and
-  the spec's own examples.
+* **CLI integration tests** (13) — argument handling, exit codes, `--bits`,
+  `--from-bits` (including malformed input → exit 2), `--quiet`, `±Any`
+  output, N=18 end-to-end, and the spec's own examples.
+
+### Testing at an arbitrary precision
+
+`make test N=K` (equivalently `N=K make test`, env var `NF_TEST_N`) runs
+the matrix grids, the whole of `tests/huge.rs`, and the huge CLI checks
+*additionally* at precision `K` — on top of the fixed
+`{0, 1, 2, 3, 6, 7, 8, 18}` set, which always runs.  Sub-checks that need
+more integer bits than a small `K` provides (e.g. the 302-digit `2^1000`
+round-trip, or values like 5 at the N=0/N=1 extremes where max is 1.5/3.75)
+skip themselves, so any `K ≥ 0` works; at `K ≥ 16` the quadratic dense
+paths are
+skipped as in the fixed N=18 run.  Measured: `make test` ≈ 6 s,
+`make test N=20` ≈ 44 s (debug, one core).
+
+### Huge-N confirmation (N=32 and beyond)
+
+Decimal printing makes no sense at N=32 (one NF is `2·2^32+4` =
+8 589 934 596 logical bits = 1 GiB of mantissa; an NC is 2 GiB), so the
+CLI gained `-q/--quiet` and the repo carries a permanent in-memory proof:
+
+```console
+$ make confirm32           # = cargo run --release --example confirm32 32
+```
+
+It fills **all data bits of two NC numbers with random bits** (xorshift64*,
+time seed), adds them with `nc::add`, and spot-checks the exact
+fixed-point sum limb-wise without printing a digit. Measured on this
+machine:
+
+```text
+N=32  logical bits per NF: 2*(2^32)+4 = 8589934596  (134217728 limbs, 1.000 GiB/NF, 2.000 GiB/NC)
+filled 4 random NF mantissas in 3.15s
+nc::add done in 8.81s  ->  re: normal, im: normal
+re: exact low-limb check passed
+im: exact low-limb check passed
+peak RSS: 8.00 GiB
+OK: 32C addition confirmed in memory
+```
+
+No 32-bit limitation exists anywhere: widths are `usize`/`u64` throughout
+(`frac_bits()` is `1usize << N`), so N is bounded only by RAM — exactly as
+specified. `make confirm32 N=30` (or any other N) runs the same proof at
+other sizes.
 
 ## Verified-working checklist
 
@@ -484,3 +555,6 @@ real output:
 | `Inf·Eps = +Any` (both bits set) | `nc 7 --bits "inf*eps"` | `(+Any)` + `re bits: 0110-0…0-0…0` |
 | sign-known indeterminates | `nc 3 "inf/inf"`, `nc 3 "eps/eps"` | `(+Any)` |
 | sign-unknown stay NaN | `nc 3 "inf-inf"`, `nc 3 "0*inf"` | `(NaN)` |
+| huge N end-to-end | `nc 18 "2^100"` | `1267650600228229401496703205376` |
+| quiet compute (no printing) | `nc 32 -q "…"` | *(nothing; exit 0)* |
+| 32C in memory (8.6G-bit numbers) | `make confirm32` | `OK: 32C addition confirmed in memory` (8 GiB peak, 8.81 s) |
