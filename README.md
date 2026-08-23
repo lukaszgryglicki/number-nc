@@ -450,6 +450,102 @@ Modules:
   `N=16` (128K-bit) arithmetic — ~10 ms; `N=18` `sqrt(2)` — ~1.4 s;
   `N=20` (2M-bit) `sqrt` — ~15 s.
 
+## How it works internally
+
+The library is a strict five-layer stack; each layer only uses the one
+below it:
+
+```text
+expr   tokenizer → recursive-descent parser → NC evaluator
+nc     complex pairs of NF; exact cross-sums or structural special algebra
+real   transcendentals: NF → Fx (+128 guard bits) → series → one rounding
+nf     the format: global N, flags, canonical packing, ± × ÷, compare, I/O
+fx     signed fixed-point scratch values at a caller-chosen scale
+limb   unsigned big integers on u64 words (add/sub/mul/div/shift/sqrt)
+```
+
+**One global `N`, plain arrays.** `set_n(N)` stores `N` in a process-wide
+atomic; every size is derived from it (`F = frac_bits() = 2^N`, mantissa =
+`2F` bits, `words() = ceil(2F/64) + 1`). Numbers are raw `Vec<u64>` with no
+header, so a value is just `[mantissa limbs…, FLAGS]` and slicing an NC
+into its two NF halves is free. Tests that need several precisions use
+`with_n(n, …)`, which takes a mutex around the atomic.
+
+**Anatomy of every operation.** Each arithmetic function has the same
+shape, and this is the core invariant of the whole library:
+
+1. *Special ladder first* — NaN poisons; then the documented matrices
+   decide `±Inf`/`±Any`/`±InfSmall`/zero cases (e.g. `0×Inf = NaN`,
+   `Inf×Eps = +Any`) before any mantissa math runs.
+2. *Exact integer arithmetic wider than the target* — a value is
+   `mant/2^F` in sign-magnitude, so `+ −` are exact; `×` forms the full
+   `4F`-bit product; `÷` computes `(mant_a << (F+1)) / mant_b`, one extra
+   bit beyond the target.
+3. *Exactly one rounding* — `limb::round_shr` shifts the exact result
+   down (`F` bits after `×`, the single extra bit after `÷`), adding 1
+   when the highest dropped bit is set: round-to-nearest, **ties away
+   from zero**, ≤ 0.5 ulp total error.
+4. *Canonical packing* — `nf::pack(sign, mant, nonzero_hint)` maps the
+   rounded magnitude into the format: more than `2F` bits → `±Inf`
+   (overflow bit), a zero magnitude whose true value was non-zero →
+   `±InfSmall` (underflow bit), `−0` → `+0`, and specials always carry a
+   zero payload. Every constructor and parser funnels through the same
+   canonicalization, so operations only ever see canonical values.
+
+**The special algebra** is interval reasoning made closed: `±Any` (Inf and
+InfSmall bits set together) means *sign known, magnitude unknown in
+(0, ∞]* — the answer whenever a result is provably non-zero of known sign
+but its size cannot be bounded (`Inf/Inf`, `Inf×Eps`, `Eps/Eps`). NaN
+appears exactly when even the sign is unknowable (`Inf−Inf`, `0×Inf`,
+`x/0`). The README matrices above are the specification; the code's
+ladders implement them case by case and the test suites assert every cell.
+
+**Transcendentals (`real`)** convert the NF argument into an `Fx` — a
+signed fixed-point scratch value at scale `F + 128` guard bits — run
+argument reduction plus a series at that scale, and round **once** at the
+end through the same `pack` path (`from_fx`): `exp` splits off `k·ln 2` so
+the remainder series converges fast; `ln` applies 16 square roots and an
+`atanh` series; `sin`/`cos` reduce to a quarter period; π, e, ln 2 come
+from Machin-type formulas and are cached per (constant, scale) behind a
+mutex. Special arguments short-circuit before any series, following the
+unary tables above (`exp(−∞) = +ε`, `ln(+ε) = −∞`, `cos(±ε) = 1`, …).
+
+**`pow` takes three routes**: the special-value table; exact binary
+powering for integral exponents; and `exp(b·ln a)` for fractional ones.
+The approximate route has a safety net — if the guarded approximation
+lands within a small band of a rounding boundary (an odd multiple of
+`2^−(F+1)`), the true side is decided by *exact integer* comparison
+(`a^b ⋛ M/2^(F+1)` cross-multiplied into integers for `b = ±k/2^d`), so
+genuine ties like `2.25^1.5 = 3.375` round away from zero instead of
+falling to floating error. The exhaustive 1F sweep is what forced this
+fix; the 2F sweep re-proves it at `F = 16` (e.g. `0.5^5 = 1/32`, an exact
+tie).
+
+**Complex (`nc`)** stores `[re NF | im NF]` and keeps the single-rounding
+discipline: for all-normal operands `×` forms the exact cross sums
+`ac − bd`, `ad + bc` at scale `2F` and rounds each component once, `÷`
+computes the exact big rationals `(ac+bd)/(c²+d²)`, `(bc−ad)/(c²+d²)`
+with one tie bit, and `abs` is a rounded integer square root of the exact
+`ma² + mi²`. When any component is special, the code switches to
+*structural composition*: products with an exactly-zero factor vanish
+structurally (a zero component never manufactures `0×Inf`), division uses
+Smith's algorithm on NF components, and `pow` walks a ladder — real
+base/exponent shortcut → exact binary powering for integral real
+exponents → `exp(w·ln z)` — so the NF special algebra decides every
+corner. This is why the exhaustive 0C sweep can predict all
+16.7M×4 results from the scalar matrices alone.
+
+**The parser (`expr`)** tokenizes, parses by recursive descent (`^`
+right-associative, implicit multiplication like `2pi` or `(1+i)(1−i)`),
+and evaluates directly into NC values, so the CLI is a thin wrapper:
+parse arguments, `set_n`, evaluate, format.
+
+The reason the format is this testable is the combination of *fixed
+point* (no exponent interactions — rounding is a pure integer question)
+with *single rounding* (the result is a mathematical function of the
+inputs, not of an evaluation order): an independent oracle can predict
+every output bit, which is exactly what the exhaustive suites below do.
+
 ## Tests
 
 ```console
@@ -457,9 +553,11 @@ $ make test          # = cargo test (the fixed-N suite below)
 $ make test N=15     # the same suite, additionally run at precision N=15
 $ make test ALL0F=1  # additionally: the exhaustive 0F suite (20 480 cases)
 $ make test ALL1F=1  # additionally: the exhaustive 1F suite (327 680 cases)
+$ make test ALL2F=1  # additionally: the exhaustive 2F suite (67 108 864 cases)
+$ make test ALL0C=1  # additionally: the exhaustive 0C complex suite (67 108 864 cases)
 ```
 
-The suite (**105 tests**) is deliberately exhaustive:
+The suite (**117 tests**) is deliberately exhaustive:
 
 * **`tests/matrices.rs`** — the tables above, verbatim: 10×10 state grids
   for `add`, `mul`, `div` (plus `sub` checked as `add(a,−b)` over all 100
@@ -522,6 +620,34 @@ The suite (**105 tests**) is deliberately exhaustive:
   `mant(a)^k·2^((F+1)·2^d) ⋛ M^(2^d)·2^(F·k)` for `b = ±k/2^d` in lowest
   terms), rounding a genuine tie away from zero. Guarded by the permanent
   unit test `pow_exact_tie_rounding` in the default suite.
+* **`tests/all2f0c.rs`** (12 tests, the sweeps opt-in) — the same
+  exhaustive idea pushed to 12-bit operands. `make test ALL2F=1` sweeps
+  2F (units of 1/16, 4 096 raw encodings): **all 4096 × 4096 =
+  16 777 216 ordered raw pairs through each of `add`, `mul`, `div`,
+  `pow` = 67 108 864 bit-exact cases** (~5 s, threaded), plus all 4 096
+  encodings against an independent canonicalizer. `make test ALL0C=1`
+  does the same for **complex 0C** numbers (two 6-bit 0F components =
+  12 bits): again all 16 777 216 raw pairs × the four `nc` ops,
+  67 108 864 bit-exact cases (~2 s). `sub` is omitted by design — it is
+  definitionally `add(a, −b)` and the negation matrix is covered — and
+  NaN rows stay in the grid. To keep this fast, expected outputs are
+  precomputed once per *canonical* pair (2F has 518 canonical values →
+  268 324 pairs; 0C has 196 canonical complex values → 38 416 pairs) and
+  the raw sweeps compare every library result against the cached
+  encoding — sound because the raw → canonical parse mapping is itself
+  verified exhaustively. Oracles stay independent of the library: the 2F
+  `pow` oracle decides `a^b ⋛ (2m−1)/32` with exact integer comparisons
+  on a self-contained bigint (values up to ~2^2120, no floating point;
+  ties away — the grid contains genuine ties like `0.5^5 = 0.25^2.5 =
+  1/32`, re-proving the midpoint fix at F=4), and the 0C oracle mirrors
+  the documented complex semantics: exact once-rounded cross sums /
+  big-rational quotients for all-normal operands, and for special
+  operands the documented structural composition (term-wise NF algebra,
+  Smith's division with the `cmp ≠ Less` branch, `pow` ladder down to
+  `exp(w·ln z)` built from correctly-rounded 0F tables for
+  `exp`/`ln`/`sin`/`cos`/`atan2`/`|z|` — at 0F, `π` itself overflows to
+  `+Inf` and `cos 1.5` underflows to `+InfSmall`, and the sweep proves
+  the library gets those right on all 134 217 728 cases).
 
 ### Testing at an arbitrary precision
 
@@ -584,5 +710,7 @@ real output:
 | sign-known indeterminates | `nc 3 "inf/inf"`, `nc 3 "eps/eps"` | `(+Any)` |
 | sign-unknown stay NaN | `nc 3 "inf-inf"`, `nc 3 "0*inf"` | `(NaN)` |
 | huge N end-to-end | `nc 18 "2^100"` | `1267650600228229401496703205376` |
+| every 12-bit 2F op result, bit-exact | `make test ALL2F=1` | 67 108 864 cases ok (~5 s) |
+| every 12-bit 0C complex op result, bit-exact | `make test ALL0C=1` | 67 108 864 cases ok (~2 s) |
 | quiet compute (no printing) | `nc 32 -q "…"` | *(nothing; exit 0)* |
 | 32C in memory (8.6G-bit numbers) | `make confirm32` | `OK: 32C addition confirmed in memory` (8 GiB peak, 8.81 s) |
