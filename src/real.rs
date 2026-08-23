@@ -717,7 +717,101 @@ pub fn pow(a: &[Limb], b: &[Limb]) -> Vec<Limb> {
     if prod.abs().cmp(&lim) != Ordering::Less {
         return if prod.neg { nf::eps(false) } else { nf::inf(false) };
     }
-    nf::from_fx(&fx_exp(&prod, s), s, true)
+    let v = fx_exp(&prod, s);
+    if let Some(exact) = pow_midpoint_fix(a, b, &v, s) {
+        return exact;
+    }
+    nf::from_fx(&v, s, true)
+}
+
+/// Number of trailing zero bits of a non-zero big integer.
+fn trailing_zeros(x: &[Limb]) -> usize {
+    for (i, &w) in x.iter().enumerate() {
+        if w != 0 {
+            return i * 64 + w.trailing_zeros() as usize;
+        }
+    }
+    0
+}
+
+/// Correct-rounding guard for the `exp(b*ln a)` path of [`pow`].
+///
+/// `a^b` for dyadic `a` and non-integral dyadic `b = k/2^d` (lowest terms)
+/// can land *exactly* on a rounding boundary — an odd multiple of
+/// `2^-(F+1)`, halfway between two representable values (e.g. at 1F,
+/// `2.25^1.5 = 3.375`).  An approximation cannot decide such a tie: it
+/// falls on a random side of the boundary and can violate the format's
+/// round-to-nearest, ties-away-from-zero rule.  Whenever the approximation
+/// `v ~ a^b` lies inside the numerical-error band around an odd boundary
+/// multiple `m = M/2^(F+1)`, decide the true side with exact integer
+/// arithmetic (`a^b <=> m` is equivalent to comparing
+/// `mant(a)^k * 2^((F+1)*2^d)` with `M^(2^d) * 2^(F*k)`), and round from
+/// that: below -> down, above -> up, exactly equal -> away from zero.
+/// Returns None when `v` is safely far from every boundary (the normal
+/// case) or when the exact integers would be impractically large (the tie
+/// is then astronomically improbable anyway).
+fn pow_midpoint_fix(a: &[Limb], b: &[Limb], v: &Fx, s: usize) -> Option<Vec<Limb>> {
+    const SLACK: usize = 48; // error band around a boundary, in scale-s ulps
+    const CAP_BITS: u128 = 1 << 22; // exact-arithmetic size budget
+    let f = nf::frac_bits();
+    if v.neg || v.is_zero() || s < f + 1 + SLACK + 8 {
+        return None;
+    }
+    let t = s - (f + 1); // v.mag bits below the half-ulp boundary grid
+    // nearest boundary-grid index and the distance to it
+    let hi = limb::shr(&v.mag, t);
+    let low = limb::sub(&v.mag, &limb::shl(&hi, t));
+    let band = limb::shl(&limb::from_u64(1), SLACK);
+    let m_grid = if limb::cmp(&low, &band) != Ordering::Greater {
+        hi
+    } else {
+        let up = limb::sub(&limb::shl(&limb::from_u64(1), t), &low);
+        if limb::cmp(&up, &band) != Ordering::Greater {
+            let mut h = hi;
+            limb::add_small_in_place(&mut h, 1);
+            h
+        } else {
+            return None; // far from every boundary: rounding is unambiguous
+        }
+    };
+    // even index = a representable value itself, nearest-rounding is exact
+    if !limb::get_bit(&m_grid, 0) {
+        return None;
+    }
+    // b = +/- k/2^d in lowest terms (d >= 1 since b is non-integral)
+    let qb = limb::trimmed(nf::mant(b));
+    let c = trailing_zeros(&qb).min(f);
+    let d = f - c;
+    let k_big = limb::shr(&qb, c);
+    if limb::bit_len(&k_big) > 63 || d > 24 {
+        return None;
+    }
+    let k = k_big[0];
+    let qa = limb::trimmed(nf::mant(a));
+    let m_bits = limb::bit_len(&m_grid) as u128;
+    let a_bits = limb::bit_len(&qa) as u128;
+    let (fk, e2) = (f as u128 * k as u128, (f as u128 + 1) << d);
+    if a_bits * k as u128 + e2 > CAP_BITS || (m_bits << d) + fk > CAP_BITS {
+        return None;
+    }
+    // exact comparison of a^b with m = M/2^(F+1)
+    let pa = limb::pow(&qa, k);
+    let pm = limb::pow(&m_grid, 1u64 << d);
+    let ord = if nf::is_neg(b) {
+        // 1/a^(k/2^d) <=> m  <=>  2^(F*k + (F+1)*2^d) <=> M^(2^d) * a_mant^k
+        let one_side = limb::shl(&limb::from_u64(1), (fk + e2) as usize);
+        limb::cmp(&one_side, &limb::mul(&pm, &pa))
+    } else {
+        // a^(k/2^d) <=> m  <=>  a_mant^k * 2^((F+1)*2^d) <=> M^(2^d) * 2^(F*k)
+        limb::cmp(&limb::shl(&pa, e2 as usize), &limb::shl(&pm, fk as usize))
+    };
+    // true value below the boundary -> round down; above or exactly on the
+    // tie -> round up (away from zero; the result is positive here)
+    let mm = match ord {
+        Ordering::Less => limb::shr(&limb::sub(&m_grid, &limb::from_u64(1)), 1),
+        _ => limb::shr(&limb::add(&m_grid, &limb::from_u64(1)), 1),
+    };
+    Some(nf::pack(false, &mm, true))
 }
 
 /// `sin(a)`; `sin(+/-Inf) = sin(+/-Any) = NaN`, `sin(+/-Eps) = +/-Eps`.
@@ -1092,6 +1186,22 @@ mod tests {
         let mut bound = nf::min_pos();
         bound = nf::mul(&bound, &nf::from_u64(k));
         nf::cmp(&d, &bound) != Some(Ordering::Greater)
+    }
+
+    #[test]
+    fn pow_exact_tie_rounding() {
+        // a^b landing exactly halfway between representables must round
+        // away from zero (caught by the exhaustive 1F suite: 2.25^1.5 =
+        // 3.375 used to come out 3.25 from the approximate exp/ln path).
+        with_n(1, || {
+            assert_eq!(nf::to_bit_string(&pow(&p("2.25"), &p("1.5"))), "0000-11-10"); // 3.5
+            assert_eq!(nf::to_bit_string(&pow(&p("0.25"), &p("1.5"))), "0000-00-01"); // 0.25
+        });
+        with_n(2, || {
+            // same values, exactly representable at F=4: must stay exact
+            assert!(nf::eq(&pow(&p("2.25"), &p("1.5")), &p("3.375")));
+            assert!(nf::eq(&pow(&p("0.25"), &p("1.5")), &p("0.125")));
+        });
     }
 
     #[test]

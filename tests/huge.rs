@@ -259,12 +259,20 @@ fn complex_and_parser() {
                 assert_eq!(ev("im(2^100+5i)"), "5");
                 assert_eq!(ev("conj(2^100+5i) + 5i - 2^100"), "0");
                 assert_eq!(ev("2^-100 * 2^100"), "1");
-                // deep-fraction decimal: 2^-100 prints its exact 100 digits
+                // deep-fraction decimal: 2^-100 stores exactly; its
+                // shortest form round-trips and shares the leading digits
+                // of the exact 100-digit expansion (it becomes the full
+                // exact expansion once the ulp 2^-F forces it, F >= ~334)
                 let m100 = expr::eval_str("2^-100").unwrap();
-                assert_eq!(
-                    nc::to_string_digits(&m100, None),
-                    format!("0.{}", FRAC100.trim_end_matches('0'))
-                );
+                let s = nc::to_string_digits(&m100, None);
+                let exact = format!("0.{}", FRAC100.trim_end_matches('0'));
+                assert_eq!(&s[..40], &exact[..40], "leading digits of 2^-100");
+                assert!(nfm::eq(&nfm::from_str(&s).unwrap(), nc::re(&m100)), "round-trip");
+                if nfm::frac_bits() >= 340 {
+                    assert_eq!(s, exact);
+                }
+                // regardless of printed form, the stored value is exact
+                assert!(nfm::eq(nc::re(&m100), &p2(-100)));
             }
             if nfm::frac_bits() >= 4 {
                 // needs integers up to 5; overflows at N <= 1 (max 1.5 / 3.75)

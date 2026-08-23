@@ -14,7 +14,9 @@ $ ./target/release/nc 7 "(3.14159+2.73i)^(-2.00000000000000000000000000000000000
 
 Build targets (`Makefile` wraps cargo): `make` — optimized release build,
 `make debug` — debug build, `make test` — full test suite
-(`make test N=15` additionally runs it at precision 15), `make confirm32`
+(`make test N=15` additionally runs it at precision 15,
+`make test ALL0F=1` / `ALL1F=1` add the exhaustive bit-exact 0F/1F suites,
+348 160 cases total), `make confirm32`
 — in-memory random-add proof at N=32, `make clean` — remove artifacts.
 
 ## The NF format
@@ -451,11 +453,13 @@ Modules:
 ## Tests
 
 ```console
-$ make test        # = cargo test (the fixed-N suite below)
-$ make test N=15   # the same suite, additionally run at precision N=15
+$ make test          # = cargo test (the fixed-N suite below)
+$ make test N=15     # the same suite, additionally run at precision N=15
+$ make test ALL0F=1  # additionally: the exhaustive 0F suite (20 480 cases)
+$ make test ALL1F=1  # additionally: the exhaustive 1F suite (327 680 cases)
 ```
 
-The suite (**94 tests**) is deliberately exhaustive:
+The suite (**105 tests**) is deliberately exhaustive:
 
 * **`tests/matrices.rs`** — the tables above, verbatim: 10×10 state grids
   for `add`, `mul`, `div` (plus `sub` checked as `add(a,−b)` over all 100
@@ -487,13 +491,37 @@ The suite (**94 tests**) is deliberately exhaustive:
   `1/max = min`); 1101-char decimal literals round-tripping exactly
   (`(10^999+7) + 2^-100`); complex giants through the parser
   (`(2^100+3)(2^100−3) = 2^200−9` exactly).
-* **library unit tests** (49) — big-int properties, packing/rounding,
+* **library unit tests** (50) — big-int properties, packing/rounding,
   special algebra, transcendentals vs 80-digit references at N=7/8, complex
   identities (Euler, i^i, branch cuts), parser precedence/errors, across
   `N ∈ {1, 2, 3, 6, 7, 8}` with spot checks at N=0/10/12.
 * **CLI integration tests** (13) — argument handling, exit codes, `--bits`,
   `--from-bits` (including malformed input → exit 2), `--quiet`, `±Any`
   output, N=18 end-to-end, and the spec's own examples.
+* **`tests/allf.rs`** (10 tests, opt-in) — the exhaustive 0F and 1F checks.
+  A 0F number is 6 bits and a 1F number is 8 bits, so *all* raw encodings
+  can be enumerated — including every non-canonical one (NaN+Inf+InfSmall
+  at once, specials with payload bits, `-0`). `make test ALL0F=1` feeds
+  **all 64 × 64 = 4096 ordered pairs** and `make test ALL1F=1` **all
+  256 × 256 = 65 536 ordered pairs** through each of `add`, `sub`, `mul`,
+  `div`, `pow` (**20 480 + 327 680 = 348 160 cases**), and requires the
+  full output encoding to match an independent exact oracle **bit for
+  bit**. The oracle is implemented straight from the matrices above:
+  small-integer rational arithmetic in units of 2^−F, round-to-nearest
+  ties-away (pow decided by exact u128 power comparisons, no floating
+  point), overflow → `±Inf`, underflow → `±InfSmall`. All 348 160 agree.
+  Without the variables the ten tests are no-ops, keeping the default run
+  fast.
+* **The 1F sweep caught a real bug.** `2.25^1.5 = 3.375` lands *exactly*
+  halfway between the two 1F neighbours 3.25 and 3.5, and the approximate
+  `exp(b·ln a)` power path cannot decide an exact tie — it landed on the
+  wrong side and returned 3.25 instead of the ties-away 3.5. `real::pow`
+  now detects an approximation inside the error band around a rounding
+  boundary (an odd multiple of 2^−(F+1)) and decides the true side with
+  exact integer arithmetic (`a^b ⋛ M/2^(F+1)` ⇔
+  `mant(a)^k·2^((F+1)·2^d) ⋛ M^(2^d)·2^(F·k)` for `b = ±k/2^d` in lowest
+  terms), rounding a genuine tie away from zero. Guarded by the permanent
+  unit test `pow_exact_tie_rounding` in the default suite.
 
 ### Testing at an arbitrary precision
 
