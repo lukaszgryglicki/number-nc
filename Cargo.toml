@@ -3,7 +3,7 @@ name = "nf"
 version = "0.1.0"
 edition = "2021"
 description = "NF arbitrary-precision fixed-point numbers (2^N integer bits + 2^N fraction bits + 4 special bits) and NC complex numbers, with a calculator CLI"
-license = "MIT"
+license = "AGPL-3.0-only"
 
 [lib]
 name = "nf"
